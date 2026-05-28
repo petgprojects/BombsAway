@@ -28,9 +28,7 @@ import {
 type PlayerDraft = {
   id: string;
   name: string;
-  seatNumber: number;
   holeCardsText: string;
-  isLiveAtShowdown: boolean;
 };
 
 type BoardDraft = {
@@ -53,8 +51,8 @@ type OddDecisionDraft = OddChipDecision & {
 const newId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 
 const initialPlayers: PlayerDraft[] = [
-  { id: "p1", name: "Player 1", seatNumber: 1, holeCardsText: "", isLiveAtShowdown: true },
-  { id: "p2", name: "Player 2", seatNumber: 2, holeCardsText: "", isLiveAtShowdown: true }
+  { id: "p1", name: "Player 1", holeCardsText: "" },
+  { id: "p2", name: "Player 2", holeCardsText: "" }
 ];
 
 const initialBoards: BoardDraft[] = [{ id: "b1", name: "Board 1", cardsText: "" }];
@@ -132,9 +130,9 @@ export default function App() {
 
   function loadDemo() {
     const demoPlayers: PlayerDraft[] = [
-      { id: "p1", name: "Peter", seatNumber: 1, holeCardsText: "Ah Ks", isLiveAtShowdown: true },
-      { id: "p2", name: "Mike", seatNumber: 2, holeCardsText: "Ad Qd", isLiveAtShowdown: true },
-      { id: "p3", name: "James", seatNumber: 3, holeCardsText: "9h 9s", isLiveAtShowdown: true }
+      { id: "p1", name: "Peter", holeCardsText: "Ah Ks" },
+      { id: "p2", name: "Mike", holeCardsText: "Ad Qd" },
+      { id: "p3", name: "James", holeCardsText: "9h 9s" }
     ];
     setPresetName(gamePresets[0].name);
     setRules(cloneRules(gamePresets[0]));
@@ -202,13 +200,14 @@ export default function App() {
                   max={9}
                   type="number"
                   value={rules.holeCardsPerPlayer}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setPresetName("Custom");
                     setRules((current) => ({
                       ...current,
                       holeCardsPerPlayer: Number(event.target.value),
-                      name: presetName === "Custom" ? "Custom" : current.name
-                    }))
-                  }
+                      name: "Custom"
+                    }));
+                  }}
                 />
               </label>
 
@@ -216,12 +215,14 @@ export default function App() {
                 <span>Construction</span>
                 <select
                   value={rules.handConstructionMode}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setPresetName("Custom");
                     setRules((current) => ({
                       ...current,
+                      name: "Custom",
                       handConstructionMode: event.target.value as GameRules["handConstructionMode"]
-                    }))
-                  }
+                    }));
+                  }}
                 >
                   <option value="bestAny">Best any cards</option>
                   <option value="allowedHoleCounts">Allowed hole counts</option>
@@ -229,28 +230,32 @@ export default function App() {
               </label>
             </div>
 
-            <div className="allowed-counts">
-              <span>Allowed hole cards used</span>
-              <div className="segmented-wrap">
-                {Array.from({ length: Math.min(6, Math.max(1, rules.holeCardsPerPlayer + 1)) }, (_, index) => index).map(
-                  (count) => (
-                    <button
-                      key={count}
-                      className={rules.allowedHoleCardsUsed.includes(count) ? "segment active" : "segment"}
-                      type="button"
-                      onClick={() =>
-                        setRules((current) => ({
-                          ...current,
-                          allowedHoleCardsUsed: toggleNumber(current.allowedHoleCardsUsed, count)
-                        }))
-                      }
-                    >
-                      {count}
-                    </button>
-                  )
-                )}
+            {rules.handConstructionMode === "allowedHoleCounts" && (
+              <div className="allowed-counts">
+                <span>Allowed hole cards used</span>
+                <div className="segmented-wrap">
+                  {Array.from({ length: Math.min(6, Math.max(1, rules.holeCardsPerPlayer + 1)) }, (_, index) => index).map(
+                    (count) => (
+                      <button
+                        key={count}
+                        className={rules.allowedHoleCardsUsed.includes(count) ? "segment active" : "segment"}
+                        type="button"
+                        onClick={() => {
+                          setPresetName("Custom");
+                          setRules((current) => ({
+                            ...current,
+                            name: "Custom",
+                            allowedHoleCardsUsed: toggleNumber(current.allowedHoleCardsUsed, count)
+                          }));
+                        }}
+                      >
+                        {count}
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </section>
 
           <section className="section">
@@ -266,51 +271,9 @@ export default function App() {
             </div>
 
             <div className="stack">
-              {players.map((player, index) => (
+              {players.map((player) => (
                 <div className="editor-row" key={player.id}>
-                  <div className="row-title">
-                    <strong>Seat {player.seatNumber || index + 1}</strong>
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={player.isLiveAtShowdown}
-                        onChange={(event) => {
-                          const isLive = event.target.checked;
-                          setPlayers((current) =>
-                            current.map((candidate) =>
-                              candidate.id === player.id ? { ...candidate, isLiveAtShowdown: isLive } : candidate
-                            )
-                          );
-                          if (!isLive) {
-                            setPots((current) =>
-                              current.map((pot) => ({
-                                ...pot,
-                                eligiblePlayerIds: pot.eligiblePlayerIds.filter((id) => id !== player.id)
-                              }))
-                            );
-                          }
-                        }}
-                      />
-                      <span>{player.isLiveAtShowdown ? "Live" : "Folded"}</span>
-                    </label>
-                  </div>
-
-                  <div className="field-grid compact">
-                    <label className="field tiny">
-                      <span>Seat</span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={player.seatNumber}
-                        onChange={(event) =>
-                          setPlayers((current) =>
-                            current.map((candidate) =>
-                              candidate.id === player.id ? { ...candidate, seatNumber: Number(event.target.value) } : candidate
-                            )
-                          )
-                        }
-                      />
-                    </label>
+                  <div className="field-grid player-fields">
                     <label className="field">
                       <span>Name</span>
                       <input
@@ -444,7 +407,7 @@ export default function App() {
                       id: newId("pot"),
                       name: `Side Pot ${current.length}`,
                       amountText: "",
-                      eligiblePlayerIds: players.filter((player) => player.isLiveAtShowdown).map((player) => player.id)
+                      eligiblePlayerIds: players.map((player) => player.id)
                     }
                   ])
                 }
@@ -496,7 +459,6 @@ export default function App() {
                         <button
                           key={player.id}
                           type="button"
-                          disabled={!player.isLiveAtShowdown}
                           className={pot.eligiblePlayerIds.includes(player.id) ? "choice-chip selected" : "choice-chip"}
                           onClick={() =>
                             setPots((current) =>
@@ -511,7 +473,7 @@ export default function App() {
                             )
                           }
                         >
-                          {player.name || `Seat ${player.seatNumber}`}
+                          {player.name || "Unnamed player"}
                         </button>
                       ))}
                     </div>
@@ -619,13 +581,14 @@ function buildCalculationInput(args: {
 
   const players: Player[] = args.players.map((player) => {
     const parsed = parseCards(player.holeCardsText);
-    errors.push(...parsed.errors.map((error) => `${player.name || `Seat ${player.seatNumber}`}: ${error}`));
+    errors.push(...parsed.errors.map((error) => `${player.name || "Unnamed player"}: ${error}`));
+    const seatNumber = args.players.findIndex((candidate) => candidate.id === player.id) + 1;
     return {
       id: player.id,
       name: player.name,
-      seatNumber: player.seatNumber,
+      seatNumber,
       holeCards: parsed.cards,
-      isLiveAtShowdown: player.isLiveAtShowdown
+      isLiveAtShowdown: true
     };
   });
 
@@ -881,10 +844,9 @@ function ResultsView({
       <div className="payout-table">
         {players
           .slice()
-          .sort((a, b) => a.seatNumber - b.seatNumber)
           .map((player) => (
             <div className="payout-row" key={player.id}>
-              <span>{player.name || `Seat ${player.seatNumber}`}</span>
+              <span>{player.name || "Unnamed player"}</span>
               <strong>{result.playerPayouts[player.id] ?? 0}</strong>
             </div>
           ))}
@@ -1006,9 +968,7 @@ function addPlayer(players: PlayerDraft[], pots: PotDraft[], setPots: (updater: 
     {
       id,
       name: `Player ${nextNumber}`,
-      seatNumber: nextNumber,
-      holeCardsText: "",
-      isLiveAtShowdown: true
+      holeCardsText: ""
     }
   ];
 }

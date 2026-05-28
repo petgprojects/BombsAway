@@ -52,6 +52,21 @@ describe("payout calculation", () => {
     expect(result.playerPayouts.b + result.playerPayouts.c).toBe(120);
   });
 
+  it("ignores allowed hole-card counts in best-any mode", () => {
+    const result = calculatePayouts(
+      baseInput({
+        gameRules: {
+          name: "Best any custom",
+          holeCardsPerPlayer: 2,
+          handConstructionMode: "bestAny",
+          allowedHoleCardsUsed: []
+        }
+      })
+    );
+
+    expect(result.playerPayouts.a).toBe(300);
+  });
+
   it("splits multiple boards", () => {
     const result = calculatePayouts(
       baseInput({

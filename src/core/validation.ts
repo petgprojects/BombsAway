@@ -21,17 +21,19 @@ export function validateInput(input: CalculationInput): ValidationResult {
     errors.push("Hole cards per player must be at least 1.");
   }
 
-  if (!gameRules.allowedHoleCardsUsed.length) {
-    errors.push("Allowed hole-card counts cannot be empty.");
-  }
-
-  for (const holeCount of gameRules.allowedHoleCardsUsed) {
-    const boardCount = 5 - holeCount;
-    if (holeCount < 0 || holeCount > gameRules.holeCardsPerPlayer) {
-      errors.push(`Allowed hole-card count ${holeCount} is impossible for ${gameRules.holeCardsPerPlayer} hole cards.`);
+  if (gameRules.handConstructionMode === "allowedHoleCounts") {
+    if (!gameRules.allowedHoleCardsUsed.length) {
+      errors.push("Allowed hole-card counts cannot be empty.");
     }
-    if (boardCount < 0 || boardCount > 5) {
-      errors.push(`Allowed hole-card count ${holeCount} requires an impossible ${boardCount} board cards.`);
+
+    for (const holeCount of gameRules.allowedHoleCardsUsed) {
+      const boardCount = 5 - holeCount;
+      if (holeCount < 0 || holeCount > gameRules.holeCardsPerPlayer) {
+        errors.push(`Allowed hole-card count ${holeCount} is impossible for ${gameRules.holeCardsPerPlayer} hole cards.`);
+      }
+      if (boardCount < 0 || boardCount > 5) {
+        errors.push(`Allowed hole-card count ${holeCount} requires an impossible ${boardCount} board cards.`);
+      }
     }
   }
 

@@ -1,0 +1,7 @@
+services:
+  poker-payout-calculator:
+    build:
+      context: .
+    ports:
+      - "${APP_PORT:-1234}:80"
+    restart: unless-stopped

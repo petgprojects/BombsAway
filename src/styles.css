@@ -33,7 +33,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -153,6 +154,15 @@ h2 {
   width: 34px;
 }
 
+.visually-hidden {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
+  clip: rect(0 0 0 0);
+}
+
 .field-grid {
   display: grid;
   gap: 12px;
@@ -182,7 +192,8 @@ h2 {
 }
 
 input,
-select {
+select,
+textarea {
   background: #fff;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -194,9 +205,16 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(13, 122, 95, 0.16);
+}
+
+textarea {
+  line-height: 1.45;
+  min-height: 116px;
+  resize: vertical;
 }
 
 .allowed-counts {
@@ -277,7 +295,8 @@ select:focus {
 
 .icon-button,
 .ghost-button,
-.primary-button {
+.primary-button,
+.file-picker {
   align-items: center;
   border-radius: 8px;
   display: inline-flex;
@@ -318,6 +337,158 @@ select:focus {
 .primary-button:hover {
   background: var(--accent-dark);
   border-color: var(--accent-dark);
+}
+
+.file-picker {
+  cursor: pointer;
+}
+
+.photo-section {
+  overflow: hidden;
+}
+
+.photo-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.photo-import-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.photo-preview {
+  align-items: center;
+  aspect-ratio: 4 / 3;
+  background:
+    linear-gradient(135deg, rgba(19, 35, 29, 0.97), rgba(24, 53, 43, 0.92)),
+    #13231d;
+  border: 1px solid rgba(19, 35, 29, 0.22);
+  border-radius: 8px;
+  color: #f6f2e8;
+  display: grid;
+  justify-items: center;
+  min-height: 220px;
+  overflow: hidden;
+  position: relative;
+}
+
+.photo-preview.has-image {
+  background: #111814;
+}
+
+.photo-preview img {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.photo-preview > span {
+  background: rgba(17, 24, 20, 0.72);
+  border-radius: 999px;
+  bottom: 10px;
+  color: #f6f2e8;
+  font-size: 0.78rem;
+  font-weight: 800;
+  left: 10px;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  padding: 6px 9px;
+  position: absolute;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-placeholder {
+  align-items: center;
+  color: #bfd7cd;
+  display: grid;
+  gap: 9px;
+  justify-items: center;
+}
+
+.photo-placeholder strong {
+  color: #f6f2e8;
+}
+
+.photo-draft {
+  display: grid;
+  gap: 12px;
+}
+
+.draft-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.draft-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.draft-header span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.board-draft-header {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.scan-list {
+  display: grid;
+  gap: 10px;
+}
+
+.scan-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px;
+}
+
+.vision-details {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.vision-details summary {
+  cursor: pointer;
+  font-weight: 900;
+  min-height: 32px;
+}
+
+.vision-body {
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.photo-status {
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  padding: 10px 11px;
+}
+
+.photo-status.info {
+  background: #eef4ef;
+  color: var(--accent-dark);
+}
+
+.photo-status.success {
+  background: #f2f8f5;
+  color: var(--accent-dark);
+}
+
+.photo-status.error {
+  background: #fff1ef;
+  color: #7f241d;
 }
 
 .primary-button.wide {
@@ -569,6 +740,15 @@ select:focus {
   .workspace {
     grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.72fr);
     padding: 0 18px;
+  }
+
+  .photo-import-grid {
+    grid-template-columns: minmax(260px, 0.78fr) minmax(0, 1fr);
+  }
+
+  .photo-preview {
+    position: sticky;
+    top: 16px;
   }
 
   .sticky-section {

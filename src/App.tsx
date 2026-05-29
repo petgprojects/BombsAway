@@ -1,16 +1,21 @@
 import {
   AlertTriangle,
   Calculator,
+  Camera,
   CheckCircle2,
   Coins,
+  ImagePlus,
   Layers3,
   Plus,
   RotateCcw,
+  ScanLine,
   Trash2,
   Trophy,
-  Users
+  Users,
+  Wand2,
+  X
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type Dispatch, type SetStateAction } from "react";
 import { cardKey, formatCard, formatCards, parseCards } from "./core/cardParser";
 import { gamePresets, cloneRules } from "./core/gameRules";
 import { calculatePayouts } from "./core/payouts";
@@ -44,6 +49,42 @@ type PotDraft = {
   eligiblePlayerIds: string[];
 };
 
+type PhotoPlayerDraft = {
+  id: string;
+  name: string;
+  cardsText: string;
+};
+
+type PhotoBoardDraft = {
+  id: string;
+  name: string;
+  cardsText: string;
+};
+
+type PhotoImportDraft = {
+  imageUrl: string;
+  imageName: string;
+  players: PhotoPlayerDraft[];
+  boards: PhotoBoardDraft[];
+  visionText: string;
+};
+
+type PhotoImportStatus = {
+  tone: "info" | "success" | "error";
+  message: string;
+};
+
+type PhotoImportPayload = {
+  players?: Array<{
+    name?: unknown;
+    cards?: unknown;
+  }>;
+  boards?: Array<{
+    name?: unknown;
+    cards?: unknown;
+  }>;
+};
+
 type OddDecisionDraft = OddChipDecision & {
   flippedCardText?: string;
 };
@@ -58,12 +99,25 @@ const initialPlayers: PlayerDraft[] = [
 const initialBoards: BoardDraft[] = [{ id: "b1", name: "Board 1", cardsText: "" }];
 const initialPots: PotDraft[] = [{ id: "pot-main", name: "Main Pot", amountText: "", eligiblePlayerIds: ["p1", "p2"] }];
 
+const createPhotoImportDraft = (): PhotoImportDraft => ({
+  imageUrl: "",
+  imageName: "",
+  players: [
+    { id: "scan-p1", name: "Player 1", cardsText: "" },
+    { id: "scan-p2", name: "Player 2", cardsText: "" }
+  ],
+  boards: [{ id: "scan-b1", name: "Board 1", cardsText: "" }],
+  visionText: ""
+});
+
 export default function App() {
   const [rules, setRules] = useState<GameRules>(() => cloneRules(gamePresets[0]));
   const [presetName, setPresetName] = useState(gamePresets[0].name);
   const [players, setPlayers] = useState<PlayerDraft[]>(initialPlayers);
   const [boards, setBoards] = useState<BoardDraft[]>(initialBoards);
   const [pots, setPots] = useState<PotDraft[]>(initialPots);
+  const [photoDraft, setPhotoDraft] = useState<PhotoImportDraft>(() => createPhotoImportDraft());
+  const [photoImportStatus, setPhotoImportStatus] = useState<PhotoImportStatus | null>(null);
   const [oddDecisionDrafts, setOddDecisionDrafts] = useState<Record<string, OddDecisionDraft>>({});
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -75,6 +129,15 @@ export default function App() {
     () => buildCalculationInput({ players, boards, pots, rules, oddDecisionDrafts }),
     [players, boards, pots, rules, oddDecisionDrafts]
   );
+
+  useEffect(() => {
+    const imageUrl = photoDraft.imageUrl;
+    return () => {
+      if (imageUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(imageUrl);
+      }
+    };
+  }, [photoDraft.imageUrl]);
 
   function runCalculation(nextOddDrafts = oddDecisionDrafts) {
     const nextParsed = buildCalculationInput({ players, boards, pots, rules, oddDecisionDrafts: nextOddDrafts });
@@ -128,6 +191,145 @@ export default function App() {
     }
   }
 
+  function selectPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const imageUrl = URL.createObjectURL(file);
+    setPhotoDraft((current) => ({
+      ...current,
+      imageUrl,
+      imageName: file.name
+    }));
+    setPhotoImportStatus({ tone: "info", message: `${file.name} loaded.` });
+    event.target.value = "";
+  }
+
+  function resetPhotoImport() {
+    setPhotoDraft(createPhotoImportDraft());
+    setPhotoImportStatus(null);
+  }
+
+  function loadVisionDraft() {
+    const source = photoDraft.visionText.trim();
+    if (!source) {
+      setPhotoImportStatus({ tone: "error", message: "Paste a vision draft before loading it." });
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(source) as PhotoImportPayload;
+      const nextPlayers = Array.isArray(payload.players)
+        ? payload.players.map((player, index) => ({
+            id: newId("scan-p"),
+            name: typeof player.name === "string" && player.name.trim() ? player.name.trim() : `Player ${index + 1}`,
+            cardsText: cardsValueToText(player.cards)
+          }))
+        : [];
+      const nextBoards = Array.isArray(payload.boards)
+        ? payload.boards.map((board, index) => ({
+            id: newId("scan-b"),
+            name: typeof board.name === "string" && board.name.trim() ? board.name.trim() : `Board ${index + 1}`,
+            cardsText: cardsValueToText(board.cards)
+          }))
+        : [];
+
+      if (!nextPlayers.length && !nextBoards.length) {
+        setPhotoImportStatus({ tone: "error", message: "Vision draft needs players or boards." });
+        return;
+      }
+
+      setPhotoDraft((current) => ({
+        ...current,
+        players: nextPlayers.length ? nextPlayers : current.players,
+        boards: nextBoards.length ? nextBoards : current.boards
+      }));
+      setPhotoImportStatus({ tone: "success", message: "Vision draft loaded for review." });
+    } catch {
+      setPhotoImportStatus({ tone: "error", message: "Vision draft must be valid JSON." });
+    }
+  }
+
+  function applyPhotoDraft() {
+    const usablePlayers = photoDraft.players.filter((player) => player.cardsText.trim());
+    const usableBoards = photoDraft.boards.filter((board) => board.cardsText.trim());
+
+    if (usablePlayers.length < 2) {
+      setPhotoImportStatus({ tone: "error", message: "Add at least two hole-card groups before applying." });
+      return;
+    }
+
+    if (!usableBoards.length) {
+      setPhotoImportStatus({ tone: "error", message: "Add at least one board before applying." });
+      return;
+    }
+
+    const playerCardCounts: number[] = [];
+    for (const player of usablePlayers) {
+      const parsedPlayerCards = parseCards(player.cardsText);
+      if (parsedPlayerCards.errors.length) {
+        setPhotoImportStatus({ tone: "error", message: `${player.name || "Player"}: ${parsedPlayerCards.errors[0]}` });
+        return;
+      }
+      playerCardCounts.push(parsedPlayerCards.cards.length);
+    }
+
+    const inferredHoleCards = playerCardCounts[0];
+    if (!inferredHoleCards || playerCardCounts.some((count) => count !== inferredHoleCards)) {
+      setPhotoImportStatus({ tone: "error", message: "Hole-card groups must all have the same card count." });
+      return;
+    }
+
+    for (const board of usableBoards) {
+      const parsedBoardCards = parseCards(board.cardsText);
+      if (parsedBoardCards.errors.length) {
+        setPhotoImportStatus({ tone: "error", message: `${board.name}: ${parsedBoardCards.errors[0]}` });
+        return;
+      }
+      if (parsedBoardCards.cards.length !== 5) {
+        setPhotoImportStatus({ tone: "error", message: `${board.name} needs exactly 5 board cards.` });
+        return;
+      }
+    }
+
+    const nextPlayers: PlayerDraft[] = usablePlayers.map((player, index) => ({
+      id: players[index]?.id ?? newId("p"),
+      name: player.name.trim() || `Player ${index + 1}`,
+      holeCardsText: player.cardsText.trim()
+    }));
+    const nextBoards: BoardDraft[] = usableBoards.map((board, index) => ({
+      id: boards[index]?.id ?? newId("b"),
+      name: board.name.trim() || `Board ${index + 1}`,
+      cardsText: board.cardsText.trim()
+    }));
+
+    setPlayers(nextPlayers);
+    setBoards(nextBoards);
+    setPots((current) =>
+      current.length
+        ? current.map((pot) => ({ ...pot, eligiblePlayerIds: nextPlayers.map((player) => player.id) }))
+        : [{ id: "pot-main", name: "Main Pot", amountText: "", eligiblePlayerIds: nextPlayers.map((player) => player.id) }]
+    );
+    setPresetName((current) => (inferredHoleCards === rules.holeCardsPerPlayer ? current : "Custom"));
+    setRules((current) =>
+      inferredHoleCards === current.holeCardsPerPlayer
+        ? current
+        : {
+            ...current,
+            name: "Custom",
+            holeCardsPerPlayer: inferredHoleCards,
+            allowedHoleCardsUsed: normalizeAllowedHoleCounts(current.allowedHoleCardsUsed, inferredHoleCards)
+          }
+    );
+    setOddDecisionDrafts({});
+    setResult(null);
+    setErrors([]);
+    setPhotoImportStatus({
+      tone: "success",
+      message: `Applied ${nextPlayers.length} players, ${nextBoards.length} board${nextBoards.length === 1 ? "" : "s"}, and ${inferredHoleCards} hole cards.`
+    });
+  }
+
   function loadDemo() {
     const demoPlayers: PlayerDraft[] = [
       { id: "p1", name: "Peter", holeCardsText: "Ah Ks" },
@@ -168,6 +370,17 @@ export default function App() {
 
       <main className="workspace">
         <div className="primary-column">
+          <PhotoImportPanel
+            draft={photoDraft}
+            holeCardsPerPlayer={rules.holeCardsPerPlayer}
+            status={photoImportStatus}
+            setDraft={setPhotoDraft}
+            onApply={applyPhotoDraft}
+            onFileSelected={selectPhoto}
+            onLoadVisionDraft={loadVisionDraft}
+            onReset={resetPhotoImport}
+          />
+
           <section className="section setup-section">
             <div className="section-heading">
               <div>
@@ -660,6 +873,234 @@ function mergeGeneratedOddDecisions(
   return next;
 }
 
+function PhotoImportPanel({
+  draft,
+  holeCardsPerPlayer,
+  status,
+  setDraft,
+  onApply,
+  onFileSelected,
+  onLoadVisionDraft,
+  onReset
+}: {
+  draft: PhotoImportDraft;
+  holeCardsPerPlayer: number;
+  status: PhotoImportStatus | null;
+  setDraft: Dispatch<SetStateAction<PhotoImportDraft>>;
+  onApply: () => void;
+  onFileSelected: (event: ChangeEvent<HTMLInputElement>) => void;
+  onLoadVisionDraft: () => void;
+  onReset: () => void;
+}) {
+  const stagedHoleCards = inferPhotoHoleCardCount(draft.players);
+
+  function updatePlayer(id: string, patch: Partial<PhotoPlayerDraft>) {
+    setDraft((current) => ({
+      ...current,
+      players: current.players.map((player) => (player.id === id ? { ...player, ...patch } : player))
+    }));
+  }
+
+  function updateBoard(id: string, patch: Partial<PhotoBoardDraft>) {
+    setDraft((current) => ({
+      ...current,
+      boards: current.boards.map((board) => (board.id === id ? { ...board, ...patch } : board))
+    }));
+  }
+
+  return (
+    <section className="section photo-section">
+      <div className="section-heading">
+        <div>
+          <span className="section-icon">
+            <ScanLine size={18} />
+          </span>
+          <h2>Photo Import</h2>
+        </div>
+        <div className="photo-actions">
+          <input
+            className="visually-hidden"
+            id="table-photo-input"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onFileSelected}
+          />
+          <label className="icon-button labeled file-picker" htmlFor="table-photo-input">
+            <Camera size={17} />
+            Photo
+          </label>
+          <button className="ghost-button" type="button" onClick={onReset}>
+            <RotateCcw size={16} />
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div className="photo-import-grid">
+        <div className={draft.imageUrl ? "photo-preview has-image" : "photo-preview"}>
+          {draft.imageUrl ? (
+            <>
+              <img alt="Imported poker table" src={draft.imageUrl} />
+              <span>{draft.imageName || "Table photo"}</span>
+            </>
+          ) : (
+            <div className="photo-placeholder">
+              <ImagePlus size={30} />
+              <strong>No photo loaded</strong>
+            </div>
+          )}
+        </div>
+
+        <div className="photo-draft">
+          <div className="draft-header">
+            <div>
+              <strong>Hole-card groups</strong>
+              <span>{stagedHoleCards ? `${stagedHoleCards} inferred on apply` : `${holeCardsPerPlayer} current`}</span>
+            </div>
+            <button
+              className="icon-button labeled"
+              type="button"
+              onClick={() =>
+                setDraft((current) => ({
+                  ...current,
+                  players: [
+                    ...current.players,
+                    { id: newId("scan-p"), name: `Player ${current.players.length + 1}`, cardsText: "" }
+                  ]
+                }))
+              }
+            >
+              <Plus size={17} />
+              Group
+            </button>
+          </div>
+
+          <div className="scan-list">
+            {draft.players.map((player) => (
+              <div className="scan-row" key={player.id}>
+                <div className="field-grid player-fields">
+                  <label className="field">
+                    <span>Name</span>
+                    <input value={player.name} onChange={(event) => updatePlayer(player.id, { name: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span>Cards</span>
+                    <input
+                      inputMode="text"
+                      placeholder="Ah Ks"
+                      value={player.cardsText}
+                      onChange={(event) => updatePlayer(player.id, { cardsText: event.target.value })}
+                    />
+                  </label>
+                </div>
+                <div className="row-footer">
+                  <CardPreview text={player.cardsText} />
+                  <button
+                    aria-label={`Remove ${player.name || "hole-card group"}`}
+                    className="icon-button danger"
+                    type="button"
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        players: current.players.filter((candidate) => candidate.id !== player.id)
+                      }))
+                    }
+                    disabled={draft.players.length <= 2}
+                  >
+                    <X size={17} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="draft-header board-draft-header">
+            <strong>Boards</strong>
+            <button
+              className="icon-button labeled"
+              type="button"
+              onClick={() =>
+                setDraft((current) => ({
+                  ...current,
+                  boards: [
+                    ...current.boards,
+                    { id: newId("scan-b"), name: `Board ${current.boards.length + 1}`, cardsText: "" }
+                  ]
+                }))
+              }
+            >
+              <Plus size={17} />
+              Board
+            </button>
+          </div>
+
+          <div className="scan-list">
+            {draft.boards.map((board) => (
+              <div className="scan-row" key={board.id}>
+                <div className="field-grid compact">
+                  <label className="field">
+                    <span>Name</span>
+                    <input value={board.name} onChange={(event) => updateBoard(board.id, { name: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span>Cards</span>
+                    <input
+                      placeholder="Ah Ks Td 9c 2d"
+                      value={board.cardsText}
+                      onChange={(event) => updateBoard(board.id, { cardsText: event.target.value })}
+                    />
+                  </label>
+                </div>
+                <div className="row-footer">
+                  <CardPreview text={board.cardsText} />
+                  <button
+                    aria-label={`Remove ${board.name}`}
+                    className="icon-button danger"
+                    type="button"
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        boards: current.boards.filter((candidate) => candidate.id !== board.id)
+                      }))
+                    }
+                    disabled={draft.boards.length <= 1}
+                  >
+                    <X size={17} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <details className="vision-details">
+            <summary>Vision draft</summary>
+            <div className="vision-body">
+              <textarea
+                aria-label="Vision draft JSON"
+                placeholder='{"players":[{"name":"Peter","cards":"Ah Ks"}],"boards":[{"name":"Board 1","cards":"As Kd 7c 4h 2s"}]}'
+                value={draft.visionText}
+                onChange={(event) => setDraft((current) => ({ ...current, visionText: event.target.value }))}
+              />
+              <button className="ghost-button" type="button" onClick={onLoadVisionDraft}>
+                <Wand2 size={16} />
+                Load draft
+              </button>
+            </div>
+          </details>
+
+          {status && <div className={`photo-status ${status.tone}`}>{status.message}</div>}
+
+          <button className="primary-button wide" type="button" onClick={onApply}>
+            <CheckCircle2 size={17} />
+            Apply photo draft
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CardPreview({ text }: { text: string }) {
   const parsed = parseCards(text);
   if (!text.trim()) return <span className="card-preview empty">No cards</span>;
@@ -952,6 +1393,30 @@ function toggleString(values: string[], value: string): string[] {
 function toggleNumber(values: number[], value: number): number[] {
   const next = values.includes(value) ? values.filter((candidate) => candidate !== value) : [...values, value];
   return next.sort((a, b) => a - b);
+}
+
+function cardsValueToText(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((card) => String(card)).join(" ");
+  }
+  return typeof value === "string" ? value : "";
+}
+
+function inferPhotoHoleCardCount(players: PhotoPlayerDraft[]): number | null {
+  const counts = players
+    .map((player) => parseCards(player.cardsText))
+    .filter((parsed) => parsed.cards.length > 0 && parsed.errors.length === 0)
+    .map((parsed) => parsed.cards.length);
+
+  if (!counts.length) return null;
+  const first = counts[0];
+  return counts.every((count) => count === first) ? first : null;
+}
+
+function normalizeAllowedHoleCounts(current: number[], holeCardsPerPlayer: number): number[] {
+  const validCurrent = current.filter((count) => count >= 0 && count <= holeCardsPerPlayer && 5 - count >= 0 && 5 - count <= 5);
+  if (validCurrent.length) return validCurrent;
+  return [Math.min(2, holeCardsPerPlayer)];
 }
 
 function addPlayer(players: PlayerDraft[], pots: PotDraft[], setPots: (updater: (current: PotDraft[]) => PotDraft[]) => void): PlayerDraft[] {

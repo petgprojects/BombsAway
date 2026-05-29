@@ -2,6 +2,10 @@ services:
   poker-payout-calculator:
     build:
       context: .
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_VISION_MODEL: ${OPENROUTER_VISION_MODEL:-openai/gpt-4.1-mini}
+      OPENROUTER_DEBUG: ${OPENROUTER_DEBUG:-0}
     ports:
       - "${APP_PORT:-1234}:80"
     restart: unless-stopped

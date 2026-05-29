@@ -15,7 +15,7 @@ import {
   Wand2,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ChangeEvent, type Dispatch, type SetStateAction } from "react";
+import { useMemo, useState, type ChangeEvent, type Dispatch, type SetStateAction } from "react";
 import { cardKey, formatCard, formatCards, parseCards } from "./core/cardParser";
 import { gamePresets, cloneRules } from "./core/gameRules";
 import { calculatePayouts } from "./core/payouts";
@@ -83,6 +83,14 @@ type PhotoImportPayload = {
     name?: unknown;
     cards?: unknown;
   }>;
+  warnings?: unknown;
+};
+
+type PhotoImportResponse = {
+  model?: string;
+  draft?: PhotoImportPayload;
+  warnings?: string[];
+  error?: string;
 };
 
 type OddDecisionDraft = OddChipDecision & {
@@ -118,6 +126,7 @@ export default function App() {
   const [pots, setPots] = useState<PotDraft[]>(initialPots);
   const [photoDraft, setPhotoDraft] = useState<PhotoImportDraft>(() => createPhotoImportDraft());
   const [photoImportStatus, setPhotoImportStatus] = useState<PhotoImportStatus | null>(null);
+  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [oddDecisionDrafts, setOddDecisionDrafts] = useState<Record<string, OddDecisionDraft>>({});
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -129,15 +138,6 @@ export default function App() {
     () => buildCalculationInput({ players, boards, pots, rules, oddDecisionDrafts }),
     [players, boards, pots, rules, oddDecisionDrafts]
   );
-
-  useEffect(() => {
-    const imageUrl = photoDraft.imageUrl;
-    return () => {
-      if (imageUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(imageUrl);
-      }
-    };
-  }, [photoDraft.imageUrl]);
 
   function runCalculation(nextOddDrafts = oddDecisionDrafts) {
     const nextParsed = buildCalculationInput({ players, boards, pots, rules, oddDecisionDrafts: nextOddDrafts });
@@ -191,23 +191,46 @@ export default function App() {
     }
   }
 
-  function selectPhoto(event: ChangeEvent<HTMLInputElement>) {
+  async function selectPhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const imageUrl = URL.createObjectURL(file);
-    setPhotoDraft((current) => ({
-      ...current,
-      imageUrl,
-      imageName: file.name
-    }));
-    setPhotoImportStatus({ tone: "info", message: `${file.name} loaded.` });
     event.target.value = "";
+    setPhotoImportStatus({ tone: "info", message: "Preparing photo for analysis." });
+
+    try {
+      const imageUrl = await prepareImageForVision(file);
+      setPhotoDraft((current) => ({
+        ...current,
+        imageUrl,
+        imageName: file.name
+      }));
+      setPhotoImportStatus({ tone: "info", message: `${file.name} loaded.` });
+    } catch {
+      setPhotoImportStatus({ tone: "error", message: "Could not load that image." });
+    }
   }
 
   function resetPhotoImport() {
     setPhotoDraft(createPhotoImportDraft());
     setPhotoImportStatus(null);
+  }
+
+  function mergePhotoPayload(payload: PhotoImportPayload, message: string): boolean {
+    const { players: nextPlayers, boards: nextBoards } = normalizePhotoImportPayload(payload);
+
+    if (!nextPlayers.length && !nextBoards.length) {
+      setPhotoImportStatus({ tone: "error", message: "Vision draft needs players or boards." });
+      return false;
+    }
+
+    setPhotoDraft((current) => ({
+      ...current,
+      players: nextPlayers.length ? nextPlayers : current.players,
+      boards: nextBoards.length ? nextBoards : current.boards
+    }));
+    setPhotoImportStatus({ tone: "success", message });
+    return true;
   }
 
   function loadVisionDraft() {
@@ -219,34 +242,42 @@ export default function App() {
 
     try {
       const payload = JSON.parse(source) as PhotoImportPayload;
-      const nextPlayers = Array.isArray(payload.players)
-        ? payload.players.map((player, index) => ({
-            id: newId("scan-p"),
-            name: typeof player.name === "string" && player.name.trim() ? player.name.trim() : `Player ${index + 1}`,
-            cardsText: cardsValueToText(player.cards)
-          }))
-        : [];
-      const nextBoards = Array.isArray(payload.boards)
-        ? payload.boards.map((board, index) => ({
-            id: newId("scan-b"),
-            name: typeof board.name === "string" && board.name.trim() ? board.name.trim() : `Board ${index + 1}`,
-            cardsText: cardsValueToText(board.cards)
-          }))
-        : [];
-
-      if (!nextPlayers.length && !nextBoards.length) {
-        setPhotoImportStatus({ tone: "error", message: "Vision draft needs players or boards." });
-        return;
-      }
-
-      setPhotoDraft((current) => ({
-        ...current,
-        players: nextPlayers.length ? nextPlayers : current.players,
-        boards: nextBoards.length ? nextBoards : current.boards
-      }));
-      setPhotoImportStatus({ tone: "success", message: "Vision draft loaded for review." });
+      mergePhotoPayload(payload, "Vision draft loaded for review.");
     } catch {
       setPhotoImportStatus({ tone: "error", message: "Vision draft must be valid JSON." });
+    }
+  }
+
+  async function analyzePhotoWithOpenRouter() {
+    if (!photoDraft.imageUrl) {
+      setPhotoImportStatus({ tone: "error", message: "Load a photo before running vision analysis." });
+      return;
+    }
+
+    setIsAnalyzingPhoto(true);
+    setPhotoImportStatus({ tone: "info", message: "Analyzing photo with OpenRouter." });
+
+    try {
+      const response = await fetch("/api/vision/openrouter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: photoDraft.imageUrl })
+      });
+      const data = await readVisionResponse(response);
+
+      if (!response.ok || !data.draft) {
+        throw new Error(data.error ?? "Vision analysis failed.");
+      }
+
+      const warningText = data.warnings?.length ? ` ${data.warnings.length} warning${data.warnings.length === 1 ? "" : "s"} returned.` : "";
+      mergePhotoPayload(data.draft, `Analyzed with ${data.model ?? "OpenRouter"}.${warningText}`);
+    } catch (error) {
+      setPhotoImportStatus({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Vision analysis failed."
+      });
+    } finally {
+      setIsAnalyzingPhoto(false);
     }
   }
 
@@ -373,8 +404,10 @@ export default function App() {
           <PhotoImportPanel
             draft={photoDraft}
             holeCardsPerPlayer={rules.holeCardsPerPlayer}
+            isAnalyzing={isAnalyzingPhoto}
             status={photoImportStatus}
             setDraft={setPhotoDraft}
+            onAnalyze={analyzePhotoWithOpenRouter}
             onApply={applyPhotoDraft}
             onFileSelected={selectPhoto}
             onLoadVisionDraft={loadVisionDraft}
@@ -876,8 +909,10 @@ function mergeGeneratedOddDecisions(
 function PhotoImportPanel({
   draft,
   holeCardsPerPlayer,
+  isAnalyzing,
   status,
   setDraft,
+  onAnalyze,
   onApply,
   onFileSelected,
   onLoadVisionDraft,
@@ -885,8 +920,10 @@ function PhotoImportPanel({
 }: {
   draft: PhotoImportDraft;
   holeCardsPerPlayer: number;
+  isAnalyzing: boolean;
   status: PhotoImportStatus | null;
   setDraft: Dispatch<SetStateAction<PhotoImportDraft>>;
+  onAnalyze: () => void;
   onApply: () => void;
   onFileSelected: (event: ChangeEvent<HTMLInputElement>) => void;
   onLoadVisionDraft: () => void;
@@ -930,6 +967,10 @@ function PhotoImportPanel({
             <Camera size={17} />
             Photo
           </label>
+          <button className="icon-button labeled" type="button" onClick={onAnalyze} disabled={!draft.imageUrl || isAnalyzing}>
+            <Wand2 size={17} />
+            {isAnalyzing ? "Analyzing" : "Analyze"}
+          </button>
           <button className="ghost-button" type="button" onClick={onReset}>
             <RotateCcw size={16} />
             Clear
@@ -1402,6 +1443,25 @@ function cardsValueToText(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function normalizePhotoImportPayload(payload: PhotoImportPayload): { players: PhotoPlayerDraft[]; boards: PhotoBoardDraft[] } {
+  const players = Array.isArray(payload.players)
+    ? payload.players.map((player, index) => ({
+        id: newId("scan-p"),
+        name: typeof player.name === "string" && player.name.trim() ? player.name.trim() : `Player ${index + 1}`,
+        cardsText: cardsValueToText(player.cards)
+      }))
+    : [];
+  const boards = Array.isArray(payload.boards)
+    ? payload.boards.map((board, index) => ({
+        id: newId("scan-b"),
+        name: typeof board.name === "string" && board.name.trim() ? board.name.trim() : `Board ${index + 1}`,
+        cardsText: cardsValueToText(board.cards)
+      }))
+    : [];
+
+  return { players, boards };
+}
+
 function inferPhotoHoleCardCount(players: PhotoPlayerDraft[]): number | null {
   const counts = players
     .map((player) => parseCards(player.cardsText))
@@ -1417,6 +1477,58 @@ function normalizeAllowedHoleCounts(current: number[], holeCardsPerPlayer: numbe
   const validCurrent = current.filter((count) => count >= 0 && count <= holeCardsPerPlayer && 5 - count >= 0 && 5 - count <= 5);
   if (validCurrent.length) return validCurrent;
   return [Math.min(2, holeCardsPerPlayer)];
+}
+
+async function prepareImageForVision(file: File): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(file);
+  return resizeImageDataUrl(dataUrl, 1600);
+}
+
+async function readVisionResponse(response: Response): Promise<PhotoImportResponse> {
+  const text = await response.text();
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text) as PhotoImportResponse;
+  } catch {
+    return {
+      error: response.ok
+        ? "Vision response was not valid JSON."
+        : `Vision server returned HTTP ${response.status}: ${text.slice(0, 180)}`
+    };
+  }
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Could not read image.")));
+    reader.onerror = () => reject(new Error("Could not read image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function resizeImageDataUrl(source: string, maxSide: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
+      const height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("Could not prepare image."));
+        return;
+      }
+      context.drawImage(image, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", 0.86));
+    };
+    image.onerror = () => reject(new Error("Could not prepare image."));
+    image.src = source;
+  });
 }
 
 function addPlayer(players: PlayerDraft[], pots: PotDraft[], setPots: (updater: (current: PotDraft[]) => PotDraft[]) => void): PlayerDraft[] {

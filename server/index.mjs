@@ -15,6 +15,9 @@ const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterModel = process.env.OPENROUTER_VISION_MODEL ?? "openai/gpt-4.1-mini";
 const maxBodyBytes = Number(process.env.MAX_VISION_BODY_BYTES ?? 9_000_000);
 const debugOpenRouter = process.env.OPENROUTER_DEBUG === "1" || process.env.OPENROUTER_DEBUG === "true";
+const openRouterReasoningEffort = process.env.OPENROUTER_REASONING_EFFORT ?? "none";
+const openRouterReasoningMaxTokens = process.env.OPENROUTER_REASONING_MAX_TOKENS;
+const openRouterReasoningExclude = parseBoolean(process.env.OPENROUTER_REASONING_EXCLUDE ?? "true");
 
 const mimeTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -66,6 +69,7 @@ async function handleOpenRouterVision(request, response) {
   const imageDataUrl = typeof body.imageDataUrl === "string" ? body.imageDataUrl : "";
   logOpenRouterDebug(requestId, "incoming request", {
     model: openRouterModel,
+    reasoning: buildReasoningConfig(),
     bodyBytes: body.__rawByteLength ?? null,
     imageDataUrlBytes: imageDataUrl.length,
     hasApiKey: Boolean(openRouterApiKey)
@@ -89,6 +93,7 @@ async function handleOpenRouterVision(request, response) {
     model: openRouterModel,
     temperature: 0,
     max_tokens: 1600,
+    ...(buildReasoningConfig() ? { reasoning: buildReasoningConfig() } : {}),
     response_format: {
       type: "json_object"
     },
@@ -242,6 +247,32 @@ function loadDotEnv() {
   } catch {
     // A .env file is optional; docker-compose and shell env vars still work.
   }
+}
+
+function buildReasoningConfig() {
+  if (openRouterReasoningMaxTokens) {
+    const maxTokens = Number(openRouterReasoningMaxTokens);
+    if (Number.isFinite(maxTokens) && maxTokens >= 0) {
+      return {
+        max_tokens: maxTokens,
+        exclude: openRouterReasoningExclude
+      };
+    }
+  }
+
+  const effort = openRouterReasoningEffort.toLowerCase();
+  if (effort === "auto" || effort === "default" || effort === "provider") {
+    return undefined;
+  }
+
+  return {
+    effort,
+    exclude: openRouterReasoningExclude
+  };
+}
+
+function parseBoolean(value) {
+  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
 function logOpenRouterDebug(requestId, label, value) {

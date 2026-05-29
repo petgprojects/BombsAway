@@ -957,15 +957,27 @@ function PhotoImportPanel({
         <div className="photo-actions">
           <input
             className="visually-hidden"
-            id="table-photo-input"
+            id="table-photo-library-input"
+            type="file"
+            accept="image/*"
+            onChange={onFileSelected}
+          />
+          <label className="icon-button labeled file-picker" htmlFor="table-photo-library-input">
+            <ImagePlus size={17} />
+            <span className="desktop-label">Upload</span>
+            <span className="mobile-label">Library</span>
+          </label>
+          <input
+            className="visually-hidden"
+            id="table-photo-camera-input"
             type="file"
             accept="image/*"
             capture="environment"
             onChange={onFileSelected}
           />
-          <label className="icon-button labeled file-picker" htmlFor="table-photo-input">
+          <label className="icon-button labeled file-picker camera-picker" htmlFor="table-photo-camera-input">
             <Camera size={17} />
-            Photo
+            Camera
           </label>
           <button className="icon-button labeled" type="button" onClick={onAnalyze} disabled={!draft.imageUrl || isAnalyzing}>
             <Wand2 size={17} />

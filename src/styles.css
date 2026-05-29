@@ -343,6 +343,11 @@ textarea {
   cursor: pointer;
 }
 
+.camera-picker,
+.mobile-label {
+  display: none;
+}
+
 .photo-section {
   overflow: hidden;
 }
@@ -729,6 +734,17 @@ textarea {
 
   .field-grid .field.tiny {
     max-width: 110px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .camera-picker,
+  .mobile-label {
+    display: inline-flex;
+  }
+
+  .desktop-label {
+    display: none;
   }
 }
 
